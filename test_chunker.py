@@ -114,11 +114,20 @@ def test_unsorted_frame_rejected():
         iter_chunks(df, "dt", 10)
 
 
-@pytest.mark.parametrize("dates", [["2023-01-01", "2023-01-02", None], [None, "2023-01-01", "2023-01-02"]])
-def test_missing_values_rejected(dates):
+@pytest.mark.parametrize(
+    "dates, assume_sorted",
+    [
+        (["2023-01-01", "2023-01-02", None], False),
+        ([None, "2023-01-01", "2023-01-02"], False),
+        (["2023-01-01", None, "2023-01-02"], False),
+        (["2023-01-01", "2023-01-02", None], True),
+        ([None, "2023-01-01", "2023-01-02"], True),
+    ],
+)
+def test_missing_values_rejected(dates, assume_sorted):
     df = pd.DataFrame({"dt": pd.to_datetime(dates)})
     with pytest.raises(ValueError, match="missing values"):
-        iter_chunks(df, "dt", 1)
+        iter_chunks(df, "dt", 2, assume_sorted=assume_sorted)
 
 
 def test_assume_sorted_does_not_change_result_on_sorted_input():

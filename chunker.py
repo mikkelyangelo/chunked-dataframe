@@ -27,7 +27,8 @@ def iter_chunks(
 
     Колонка `by` должна быть монотонной, по возрастанию или по убыванию:
     конец группы ищется по равенству значений, направление ему не важно.
-    `assume_sorted` пропускает проверку, если порядок гарантирован выше по стеку.
+    `assume_sorted` пропускает проверку порядка, если он гарантирован выше по
+    стеку; пропуски в ключе тогда ищутся только с краю.
 
     Аргументы проверяются сразу при вызове, чанки считаются лениво. Время O(n):
     проверка порядка линейная, а граница чанка ищется за O(log k), где k это
@@ -48,11 +49,19 @@ def iter_chunks(
 def _check_keys(keys: pd.Series, by: str, assume_sorted: bool) -> None:
     if keys.empty:
         return
-    # в монотонном ключе пропуск может быть только с краю, в середине он ломает монотонность
+    missing = f"column {by!r} must not contain missing values"
+    # после sort_values пропуски стоят с краю, их видно без прохода по колонке
     if pd.isna(keys.iat[0]) or pd.isna(keys.iat[-1]):
-        raise ValueError(f"column {by!r} must not contain missing values")
-    if not assume_sorted and not (keys.is_monotonic_increasing or keys.is_monotonic_decreasing):
-        raise ValueError(f"column {by!r} must be sorted")
+        raise ValueError(missing)
+    if assume_sorted:
+        return
+
+    if keys.is_monotonic_increasing or keys.is_monotonic_decreasing:
+        return
+    # пропуск в середине тоже ломает монотонность; маску строим только перед ошибкой
+    if keys.hasnans:
+        raise ValueError(missing)
+    raise ValueError(f"column {by!r} must be sorted")
 
 
 def _chunks(df: pd.DataFrame, keys: pd.Series, size: int) -> Generator[pd.DataFrame, None, None]:
