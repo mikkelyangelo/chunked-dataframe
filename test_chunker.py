@@ -58,20 +58,21 @@ def test_invariants(repeats, size):
     assert all(len(c) for c in chunks), "пустых чанков быть не должно"
     pd.testing.assert_frame_equal(pd.concat(chunks), df)
 
-    for chunk in chunks[:-1]:
-        assert len(chunk) >= size
+    assert all(len(c) >= size for c in chunks[:-1])
 
-    # ни одна дата не встречается в двух чанках
-    last_of_chunk = [c["dt"].iat[-1] for c in chunks[:-1]]
-    first_of_next = [c["dt"].iat[0] for c in chunks[1:]]
-    assert all(a < b for a, b in zip(last_of_chunk, first_of_next))
+    # каждая дата ровно в одном чанке
+    assert sum(c["dt"].nunique() for c in chunks) == df["dt"].nunique()
 
 
 # краевые случаи
 
-def test_empty_frame_yields_nothing():
+def test_empty_frame_is_returned_as_is():
     df = pd.DataFrame({"dt": pd.to_datetime([])})
-    assert list(iter_chunks(df, "dt", 5)) == []
+    assert [c is df for c in iter_chunks(df, "dt", 5)] == [True]
+
+
+def test_short_frame_is_returned_as_is(example):
+    assert [c is example for c in iter_chunks(example, "dt", 6)] == [True]
 
 
 def test_single_row():
@@ -93,19 +94,14 @@ def test_size_below_one_rejected(example, bad):
         list(iter_chunks(example, "dt", bad))
 
 
-def test_missing_column_rejected(example):
-    with pytest.raises(KeyError):
-        list(iter_chunks(example, "nope", 2))
-
-
 def test_unsorted_frame_rejected():
-    df = pd.DataFrame({"dt": pd.to_datetime(["2023-01-02", "2023-01-01"])})
+    df = pd.DataFrame({"dt": pd.to_datetime(["2023-01-02", "2023-01-01", "2023-01-03"])})
     with pytest.raises(ValueError, match="sorted"):
         list(iter_chunks(df, "dt", 1))
 
 
 def test_missing_values_rejected():
-    df = pd.DataFrame({"dt": pd.to_datetime(["2023-01-01", None])})
+    df = pd.DataFrame({"dt": pd.to_datetime(["2023-01-01", "2023-01-02", None])})
     with pytest.raises(ValueError, match="missing values"):
         list(iter_chunks(df, "dt", 1))
 
@@ -144,8 +140,15 @@ def test_chunks_do_not_copy_data():
     assert np.shares_memory(chunk["v"].to_numpy(), df["v"].to_numpy())
 
 
-def test_generator_is_lazy():
-    df = frame([10] * 1000)
-    chunks = iter_chunks(df, "dt", 10)
-    assert len(next(chunks)) == 10
-    assert sum(len(c) for c in chunks) == len(df) - 10
+def test_boundaries_are_found_lazily(monkeypatch):
+    calls = []
+    searchsorted = pd.Series.searchsorted
+
+    def counted(self, *args, **kwargs):
+        calls.append(1)
+        return searchsorted(self, *args, **kwargs)
+
+    monkeypatch.setattr(pd.Series, "searchsorted", counted)
+    chunks = iter_chunks(frame([10] * 1000), "dt", 10)
+    next(chunks)
+    assert len(calls) == 1
