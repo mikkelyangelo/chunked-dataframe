@@ -69,7 +69,8 @@ def _check_keys(keys: pd.Series, by: str, assume_sorted: bool) -> None:
 def _chunks(df: pd.DataFrame, keys: pd.Series, size: int) -> Generator[pd.DataFrame, None, None]:
     n = len(df)
     if n <= size:
-        yield df
+        # срез, а не сам df: как и остальные чанки, это отдельный объект
+        yield df.iloc[:]
         return
 
     # to_numpy() отдаёт view только для numpy-типов; tz, category и строки читаем через .array

@@ -73,13 +73,19 @@ def test_invariants(repeats, size, descending):
 
 # краевые случаи
 
-def test_empty_frame_is_returned_as_is():
+def test_empty_frame_is_returned_as_one_chunk():
     df = pd.DataFrame({"dt": pd.to_datetime([])})
-    assert [c is df for c in iter_chunks(df, "dt", 5)] == [True]
+    chunks = list(iter_chunks(df, "dt", 5))
+    assert len(chunks) == 1 and chunks[0].empty
 
 
-def test_short_frame_is_returned_as_is(example):
-    assert [c is example for c in iter_chunks(example, "dt", 6)] == [True]
+# pandas 2 без Copy-on-Write предупреждает о записи в срез, это ожидаемо
+@pytest.mark.filterwarnings(r"ignore:\s*A value is trying to be set on a copy of a slice")
+@pytest.mark.parametrize("size", [1, 10])
+def test_new_column_in_chunk_does_not_leak_into_input(example, size):
+    for chunk in iter_chunks(example, "dt", size):
+        chunk["x"] = 1
+    assert "x" not in example
 
 
 def test_single_row():
