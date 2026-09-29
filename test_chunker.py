@@ -2,12 +2,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import chunker
 from chunker import iter_chunks
 
 
-def frame(repeats, start="2023-01-01 00:00:01"):
+def frame(repeats, start="2023-01-01 00:00:01", descending=False):
     ts = pd.date_range(start, periods=len(repeats), freq="s")
-    return pd.DataFrame({"dt": ts.repeat(repeats), "v": range(sum(repeats))})
+    df = pd.DataFrame({"dt": ts.repeat(repeats), "v": range(sum(repeats))})
+    if descending:
+        df = df.iloc[::-1].reset_index(drop=True)
+    return df
 
 
 def chunk_sizes(df, by, size, **kw):
@@ -48,10 +52,11 @@ def test_example_chunk_contents(example):
 
 # инварианты
 
+@pytest.mark.parametrize("descending", [False, True], ids=["asc", "desc"])
 @pytest.mark.parametrize("repeats", [[1] * 6, [6], [5, 1], [1, 5], [2, 2, 2], [1, 4, 1]])
 @pytest.mark.parametrize("size", [1, 2, 3, 4, 7])
-def test_invariants(repeats, size):
-    df = frame(repeats)
+def test_invariants(repeats, size, descending):
+    df = frame(repeats, descending=descending)
     chunks = list(iter_chunks(df, "dt", size))
 
     assert chunks, "генератор не должен возвращать пустую последовательность"
@@ -88,6 +93,11 @@ def test_first_group_smaller_than_size_absorbs_the_next():
     assert chunk_sizes(frame([1, 5]), "dt", 2) == [6]
 
 
+def test_descending_key():
+    # 00:00:03 x1, 00:00:02 x3, 00:00:01 x2
+    assert chunk_sizes(frame([2, 3, 1], descending=True), "dt", 3) == [4, 2]
+
+
 @pytest.mark.parametrize("bad", [0, -1])
 def test_size_below_one_rejected(example, bad):
     with pytest.raises(ValueError, match="size must be >= 1"):
@@ -107,14 +117,20 @@ def test_missing_values_rejected():
 
 
 def test_assume_sorted_does_not_change_result_on_sorted_input():
-    """Флаг только выключает проверку.
-
-    На неотсортированном входе с этим флагом результат не определён: границы
-    ищутся бинарным поиском. Следить за сортировкой должен вызывающий.
-    """
     df = frame([3, 3, 3, 3])
     for size in range(1, 14):
         assert chunk_sizes(df, "dt", size, assume_sorted=True) == chunk_sizes(df, "dt", size)
+
+
+def test_assume_sorted_on_unsorted_input_terminates():
+    """Порядок на совести вызывающего, но зависать и терять строки нельзя.
+
+    Раньше searchsorted на таком входе возвращал позицию левее start,
+    и генератор бесконечно отдавал пустые чанки.
+    """
+    df = pd.DataFrame({"k": [0, 0, 1, 0, 0]})
+    chunks = list(iter_chunks(df, "k", 2, assume_sorted=True))
+    pd.testing.assert_frame_equal(pd.concat(chunks), df)
 
 
 # ключ не обязан быть датой
@@ -142,13 +158,13 @@ def test_chunks_do_not_copy_data():
 
 def test_boundaries_are_found_lazily(monkeypatch):
     calls = []
-    searchsorted = pd.Series.searchsorted
+    group_end = chunker._group_end
 
-    def counted(self, *args, **kwargs):
-        calls.append(1)
-        return searchsorted(self, *args, **kwargs)
+    def counted(*args):
+        calls.append(args)
+        return group_end(*args)
 
-    monkeypatch.setattr(pd.Series, "searchsorted", counted)
+    monkeypatch.setattr(chunker, "_group_end", counted)
     chunks = iter_chunks(frame([10] * 1000), "dt", 10)
     next(chunks)
     assert len(calls) == 1
