@@ -108,9 +108,9 @@ def test_descending_key():
 
 # ошибки поднимаются сразу при вызове, без итерации
 
-@pytest.mark.parametrize("bad", [0, -1])
-def test_size_below_one_rejected(example, bad):
-    with pytest.raises(ValueError, match="size must be >= 1"):
+@pytest.mark.parametrize("bad, error", [(0, ValueError), (-1, ValueError), (2.5, TypeError)])
+def test_bad_size_rejected(example, bad, error):
+    with pytest.raises(error):
         iter_chunks(example, "dt", bad)
 
 

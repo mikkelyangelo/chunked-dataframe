@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+import operator
+from collections.abc import Generator, Hashable
 
 import numpy as np
 import pandas as pd
@@ -13,7 +14,7 @@ __all__ = ["iter_chunks"]
 
 def iter_chunks(
     df: pd.DataFrame,
-    by: str,
+    by: Hashable,
     size: int,
     *,
     assume_sorted: bool = False,
@@ -35,9 +36,11 @@ def iter_chunks(
     длина группы на границе. Дополнительной памяти O(1): чанки это срезы без
     копирования.
 
+    :raises TypeError: `size` не целое число.
     :raises ValueError: `size` меньше 1, в ключе пропуски или он не монотонный.
     :raises KeyError: колонки `by` нет во фрейме.
     """
+    size = operator.index(size)
     if size < 1:
         raise ValueError(f"size must be >= 1, got {size}")
 
@@ -46,7 +49,7 @@ def iter_chunks(
     return _chunks(df, keys, size)
 
 
-def _check_keys(keys: pd.Series, by: str, assume_sorted: bool) -> None:
+def _check_keys(keys: pd.Series, by: Hashable, assume_sorted: bool) -> None:
     if keys.empty:
         return
     missing = f"column {by!r} must not contain missing values"
