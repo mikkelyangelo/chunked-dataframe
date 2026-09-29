@@ -1,4 +1,5 @@
 import tracemalloc
+from itertools import islice
 
 import numpy as np
 import pandas as pd
@@ -12,7 +13,7 @@ def frame(repeats, start="2023-01-01 00:00:01", descending=False):
     ts = pd.date_range(start, periods=len(repeats), freq="s")
     df = pd.DataFrame({"dt": ts.repeat(repeats), "v": range(sum(repeats))})
     if descending:
-        df = df.iloc[::-1].reset_index(drop=True)
+        df = df.iloc[::-1]
     return df
 
 
@@ -55,7 +56,7 @@ def test_example_chunk_contents(example):
 # инварианты
 
 @pytest.mark.parametrize("descending", [False, True], ids=["asc", "desc"])
-@pytest.mark.parametrize("repeats", [[1] * 6, [6], [5, 1], [1, 5], [2, 2, 2], [1, 4, 1]])
+@pytest.mark.parametrize("repeats", [[1] * 6, [6], [5, 1], [1, 5], [2, 2, 2], [1, 4, 1], [1, 9, 2]])
 @pytest.mark.parametrize("size", [1, 2, 3, 4, 7])
 def test_invariants(repeats, size, descending):
     df = frame(repeats, descending=descending)
@@ -66,6 +67,8 @@ def test_invariants(repeats, size, descending):
     pd.testing.assert_frame_equal(pd.concat(chunks), df)
 
     assert all(len(c) >= size for c in chunks[:-1])
+    # чанк закрывается на первой возможной границе: без последней группы он короче size
+    assert all(len(c) - (c["dt"] == c["dt"].iat[-1]).sum() < size for c in chunks)
 
     # каждая дата ровно в одном чанке
     assert sum(c["dt"].nunique() for c in chunks) == df["dt"].nunique()
@@ -143,13 +146,9 @@ def test_assume_sorted_does_not_change_result_on_sorted_input():
 
 
 def test_assume_sorted_on_unsorted_input_terminates():
-    """Порядок на совести вызывающего, но зависать и терять строки нельзя.
-
-    Раньше searchsorted на таком входе возвращал позицию левее start,
-    и генератор бесконечно отдавал пустые чанки.
-    """
+    """Порядок на совести вызывающего, но зависать и терять строки нельзя."""
     df = pd.DataFrame({"k": [0, 0, 1, 0, 0]})
-    chunks = list(iter_chunks(df, "k", 2, assume_sorted=True))
+    chunks = list(islice(iter_chunks(df, "k", 2, assume_sorted=True), len(df) + 1))
     pd.testing.assert_frame_equal(pd.concat(chunks), df)
 
 
@@ -172,13 +171,14 @@ def test_key_dtypes(keys):
 
 def test_chunks_do_not_copy_data():
     df = frame([3] * 6)
-    chunk = next(iter_chunks(df, "dt", 4))
-    assert np.shares_memory(chunk["v"].to_numpy(), df["v"].to_numpy())
+    for chunk in iter_chunks(df, "dt", 6):
+        assert np.shares_memory(chunk["v"].to_numpy(), df["v"].to_numpy())
 
 
-def test_memory_does_not_grow_with_rows():
+@pytest.mark.parametrize("tz", [None, "UTC"])
+def test_memory_does_not_grow_with_rows(tz):
     n = 2_000_000
-    df = pd.DataFrame({"dt": pd.date_range("2023-01-01", periods=n // 4, freq="s").repeat(4)})
+    df = pd.DataFrame({"dt": pd.date_range("2023-01-01", periods=n // 4, freq="s", tz=tz).repeat(4)})
     tracemalloc.start()
     try:
         for _ in iter_chunks(df, "dt", 1000):
