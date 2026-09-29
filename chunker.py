@@ -56,7 +56,9 @@ def _check_keys(keys: pd.Series, by: str, assume_sorted: bool) -> None:
     if assume_sorted:
         return
 
-    if keys.is_monotonic_increasing or keys.is_monotonic_decreasing:
+    # Index считает оба направления за один проход и запоминает результат
+    index = pd.Index(keys)
+    if index.is_monotonic_increasing or index.is_monotonic_decreasing:
         return
     # пропуск в середине тоже ломает монотонность; маску строим только перед ошибкой
     if keys.hasnans:
