@@ -29,8 +29,9 @@ def iter_chunks(
     конец группы ищется по равенству значений, направление ему не важно.
     `assume_sorted` пропускает проверку, если порядок гарантирован выше по стеку.
 
-    Время O(n) на проверки входа плюс O(log k) на чанк, где k это длина группы
-    на границе. Список чанков не строится, чанки это срезы без копирования.
+    Аргументы проверяются сразу при вызове, чанки считаются лениво. Время O(n)
+    на проверку порядка плюс O(log k) на чанк, где k это длина группы на
+    границе. Дополнительной памяти O(1): чанки это срезы без копирования.
 
     :raises ValueError: `size` меньше 1, в ключе пропуски или он не монотонный.
     :raises KeyError: колонки `by` нет во фрейме.
@@ -39,15 +40,20 @@ def iter_chunks(
         raise ValueError(f"size must be >= 1, got {size}")
 
     keys = df[by]
+    if len(keys) > size:
+        # в монотонном ключе пропуск может быть только с краю, в середине он ломает монотонность
+        if pd.isna(keys.iat[0]) or pd.isna(keys.iat[-1]):
+            raise ValueError(f"column {by!r} must not contain missing values")
+        if not assume_sorted and not (keys.is_monotonic_increasing or keys.is_monotonic_decreasing):
+            raise ValueError(f"column {by!r} must be sorted")
+    return _chunks(df, keys, size)
+
+
+def _chunks(df: pd.DataFrame, keys: pd.Series, size: int) -> Generator[pd.DataFrame, None, None]:
     n = len(df)
     if n <= size:
         yield df
         return
-
-    if keys.hasnans:
-        raise ValueError(f"column {by!r} must not contain missing values")
-    if not assume_sorted and not (keys.is_monotonic_increasing or keys.is_monotonic_decreasing):
-        raise ValueError(f"column {by!r} must be sorted")
 
     # to_numpy() отдаёт view только для numpy-типов; tz, category и строки читаем через .array
     values = keys.to_numpy() if isinstance(keys.dtype, np.dtype) else keys.array

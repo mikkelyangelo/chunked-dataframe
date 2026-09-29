@@ -1,3 +1,5 @@
+import tracemalloc
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -98,22 +100,25 @@ def test_descending_key():
     assert chunk_sizes(frame([2, 3, 1], descending=True), "dt", 3) == [4, 2]
 
 
+# ошибки поднимаются сразу при вызове, без итерации
+
 @pytest.mark.parametrize("bad", [0, -1])
 def test_size_below_one_rejected(example, bad):
     with pytest.raises(ValueError, match="size must be >= 1"):
-        list(iter_chunks(example, "dt", bad))
+        iter_chunks(example, "dt", bad)
 
 
 def test_unsorted_frame_rejected():
     df = pd.DataFrame({"dt": pd.to_datetime(["2023-01-02", "2023-01-01", "2023-01-03"])})
     with pytest.raises(ValueError, match="sorted"):
-        list(iter_chunks(df, "dt", 1))
+        iter_chunks(df, "dt", 1)
 
 
-def test_missing_values_rejected():
-    df = pd.DataFrame({"dt": pd.to_datetime(["2023-01-01", "2023-01-02", None])})
+@pytest.mark.parametrize("dates", [["2023-01-01", "2023-01-02", None], [None, "2023-01-01", "2023-01-02"]])
+def test_missing_values_rejected(dates):
+    df = pd.DataFrame({"dt": pd.to_datetime(dates)})
     with pytest.raises(ValueError, match="missing values"):
-        list(iter_chunks(df, "dt", 1))
+        iter_chunks(df, "dt", 1)
 
 
 def test_assume_sorted_does_not_change_result_on_sorted_input():
@@ -154,6 +159,20 @@ def test_chunks_do_not_copy_data():
     df = frame([3] * 6)
     chunk = next(iter_chunks(df, "dt", 4))
     assert np.shares_memory(chunk["v"].to_numpy(), df["v"].to_numpy())
+
+
+def test_memory_does_not_grow_with_rows():
+    n = 2_000_000
+    df = pd.DataFrame({"dt": pd.date_range("2023-01-01", periods=n // 4, freq="s").repeat(4)})
+    tracemalloc.start()
+    try:
+        for _ in iter_chunks(df, "dt", 1000):
+            pass
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    # даже маска на байт на строку дала бы n байт
+    assert peak < n // 2
 
 
 def test_boundaries_are_found_lazily(monkeypatch):
