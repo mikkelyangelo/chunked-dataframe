@@ -111,7 +111,7 @@ def test_size_below_one_rejected(example, bad):
 def test_unsorted_frame_rejected():
     df = pd.DataFrame({"dt": pd.to_datetime(["2023-01-02", "2023-01-01", "2023-01-03"])})
     with pytest.raises(ValueError, match="sorted"):
-        iter_chunks(df, "dt", 1)
+        iter_chunks(df, "dt", 10)
 
 
 @pytest.mark.parametrize("dates", [["2023-01-01", "2023-01-02", None], [None, "2023-01-01", "2023-01-02"]])

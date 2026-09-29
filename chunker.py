@@ -41,13 +41,18 @@ def iter_chunks(
         raise ValueError(f"size must be >= 1, got {size}")
 
     keys = df[by]
-    if len(keys) > size:
-        # в монотонном ключе пропуск может быть только с краю, в середине он ломает монотонность
-        if pd.isna(keys.iat[0]) or pd.isna(keys.iat[-1]):
-            raise ValueError(f"column {by!r} must not contain missing values")
-        if not assume_sorted and not (keys.is_monotonic_increasing or keys.is_monotonic_decreasing):
-            raise ValueError(f"column {by!r} must be sorted")
+    _check_keys(keys, by, assume_sorted)
     return _chunks(df, keys, size)
+
+
+def _check_keys(keys: pd.Series, by: str, assume_sorted: bool) -> None:
+    if keys.empty:
+        return
+    # в монотонном ключе пропуск может быть только с краю, в середине он ломает монотонность
+    if pd.isna(keys.iat[0]) or pd.isna(keys.iat[-1]):
+        raise ValueError(f"column {by!r} must not contain missing values")
+    if not assume_sorted and not (keys.is_monotonic_increasing or keys.is_monotonic_decreasing):
+        raise ValueError(f"column {by!r} must be sorted")
 
 
 def _chunks(df: pd.DataFrame, keys: pd.Series, size: int) -> Generator[pd.DataFrame, None, None]:
